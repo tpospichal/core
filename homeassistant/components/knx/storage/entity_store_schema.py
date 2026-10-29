@@ -937,6 +937,42 @@ class ClimateKnxConfig:
     ga_valve: Annotated[
         GroupAddressConfig | None, ga(write=False, valid_dpt="5.001")
     ] = None
+    ga_heating_active: Annotated[
+        GroupAddressConfig | None, ga(write=False, state_required=True, valid_dpt="1")
+    ] = None
+    ga_heating_valve: Annotated[
+        GroupAddressConfig | None,
+        ga(write=False, state_required=True, valid_dpt="5.001"),
+    ] = None
+    heating_activity_threshold: Annotated[
+        float,
+        probatio.All(
+            probatio.Coerce(float), probatio.Range(min=0, max=100, max_included=False)
+        ),
+        selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=0, max=99.9, step=0.1, unit_of_measurement="%"
+            )
+        ),
+    ] = 0.0
+    ga_cooling_active: Annotated[
+        GroupAddressConfig | None, ga(write=False, state_required=True, valid_dpt="1")
+    ] = None
+    ga_cooling_valve: Annotated[
+        GroupAddressConfig | None,
+        ga(write=False, state_required=True, valid_dpt="5.001"),
+    ] = None
+    cooling_activity_threshold: Annotated[
+        float,
+        probatio.All(
+            probatio.Coerce(float), probatio.Range(min=0, max=100, max_included=False)
+        ),
+        selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=0, max=99.9, step=0.1, unit_of_measurement="%"
+            )
+        ),
+    ] = 0.0
     section_operation_mode: Annotated[
         None, Key(remove=True), KNXSectionFlat(collapsible=True)
     ] = None
@@ -1012,6 +1048,18 @@ class ClimateKnxConfig:
         None
     )
     sync_state: SyncState = True
+
+    def __post_init__(self) -> None:
+        """Reject incomplete feedback pairs before building an XKNX device."""
+        heating = bool(self.ga_heating_active or self.ga_heating_valve)
+        cooling = bool(self.ga_cooling_active or self.ga_cooling_valve)
+        if heating != cooling:
+            raise probatio.Invalid("Independent feedback requires both valve channels")
+        for value in (self.heating_activity_threshold, self.cooling_activity_threshold):
+            if isinstance(value, bool) or not 0 <= value < 100:
+                raise probatio.Invalid(
+                    "Activity threshold must be finite and in [0, 100)"
+                )
 
 
 CLIMATE_KNX_SCHEMA = probatio.DataclassSchema(ClimateKnxConfig)

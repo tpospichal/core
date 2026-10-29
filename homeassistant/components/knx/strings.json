@@ -771,6 +771,30 @@
                 "label": "Temperature step"
               },
               "title": "Target temperature"
+            },
+            "ga_heating_active": {
+              "label": "Heating active",
+              "description": "Binary valve activity feedback (1 = active). Configure both heating and cooling channels. Binary feedback takes priority over percentage feedback, including while unknown."
+            },
+            "ga_heating_valve": {
+              "label": "Heating valve position",
+              "description": "Valve feedback in percent (DPT 5.001). Used when binary feedback for this valve is not configured."
+            },
+            "heating_activity_threshold": {
+              "label": "Heating activity threshold",
+              "description": "Valve position must be strictly greater than this percentage to count as active. Default: 0%. Valid range: 0% to less than 100%."
+            },
+            "ga_cooling_active": {
+              "label": "Cooling active",
+              "description": "Binary valve activity feedback (1 = active). Configure both heating and cooling channels. Binary feedback takes priority over percentage feedback, including while unknown."
+            },
+            "ga_cooling_valve": {
+              "label": "Cooling valve position",
+              "description": "Valve feedback in percent (DPT 5.001). Used when binary feedback for this valve is not configured."
+            },
+            "cooling_activity_threshold": {
+              "label": "Cooling activity threshold",
+              "description": "Valve position must be strictly greater than this percentage to count as active. Default: 0%. Valid range: 0% to less than 100%."
             }
           }
         },

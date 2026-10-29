@@ -370,11 +370,36 @@ class ButtonSchema(KNXPlatformSchema):
     )
 
 
+def _independent_climate_feedback(config: dict) -> dict:
+    """Require explicit feedback for both valves when using independent activity."""
+    heating = bool(
+        config.get("heating_active_state_address")
+        or config.get("heating_command_value_state_address")
+    )
+    cooling = bool(
+        config.get("cooling_active_state_address")
+        or config.get("cooling_command_value_state_address")
+    )
+    if heating != cooling:
+        raise probatio.Invalid("Independent feedback requires both valve channels")
+    for key in ("heating_activity_threshold", "cooling_activity_threshold"):
+        value = config.get(key, 0.0)
+        if not 0 <= value < 100:
+            raise probatio.Invalid("Activity threshold must be finite and in [0, 100)")
+    return config
+
+
 class ClimateSchema(KNXPlatformSchema):
     """Probatio schema for KNX climate devices."""
 
     PLATFORM = Platform.CLIMATE
 
+    CONF_HEATING_ACTIVE_STATE_ADDRESS = "heating_active_state_address"
+    CONF_HEATING_COMMAND_VALUE_STATE_ADDRESS = "heating_command_value_state_address"
+    CONF_HEATING_ACTIVITY_THRESHOLD = "heating_activity_threshold"
+    CONF_COOLING_ACTIVE_STATE_ADDRESS = "cooling_active_state_address"
+    CONF_COOLING_COMMAND_VALUE_STATE_ADDRESS = "cooling_command_value_state_address"
+    CONF_COOLING_ACTIVITY_THRESHOLD = "cooling_activity_threshold"
     CONF_ACTIVE_STATE_ADDRESS = "active_state_address"
     CONF_SETPOINT_SHIFT_ADDRESS = "setpoint_shift_address"
     CONF_SETPOINT_SHIFT_STATE_ADDRESS = "setpoint_shift_state_address"
@@ -450,6 +475,26 @@ class ClimateSchema(KNXPlatformSchema):
                 probatio.Optional(CONF_SETPOINT_SHIFT_MODE): probatio.Maybe(
                     probatio.All(probatio.Upper, cv.enum(SetpointShiftMode))
                 ),
+                probatio.Optional(CONF_HEATING_ACTIVE_STATE_ADDRESS): ga_list_validator,
+                probatio.Optional(
+                    CONF_HEATING_COMMAND_VALUE_STATE_ADDRESS
+                ): ga_list_validator,
+                probatio.Optional(
+                    CONF_HEATING_ACTIVITY_THRESHOLD, default=0.0
+                ): probatio.All(
+                    probatio.Coerce(float),
+                    probatio.Range(min=0, max=100, max_included=False),
+                ),
+                probatio.Optional(CONF_COOLING_ACTIVE_STATE_ADDRESS): ga_list_validator,
+                probatio.Optional(
+                    CONF_COOLING_COMMAND_VALUE_STATE_ADDRESS
+                ): ga_list_validator,
+                probatio.Optional(
+                    CONF_COOLING_ACTIVITY_THRESHOLD, default=0.0
+                ): probatio.All(
+                    probatio.Coerce(float),
+                    probatio.Range(min=0, max=100, max_included=False),
+                ),
                 probatio.Optional(CONF_ACTIVE_STATE_ADDRESS): ga_list_validator,
                 probatio.Optional(CONF_COMMAND_VALUE_STATE_ADDRESS): ga_list_validator,
                 probatio.Optional(CONF_OPERATION_MODE_ADDRESS): ga_list_validator,
@@ -513,6 +558,7 @@ class ClimateSchema(KNXPlatformSchema):
                 ): sync_state_no_false_validator,
             }
         ),
+        _independent_climate_feedback,
     )
 
 

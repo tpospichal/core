@@ -170,6 +170,24 @@ def _create_climate_yaml(xknx: XKNX, config: ConfigType) -> XknxClimate:
         group_address_on_off=config.get(ClimateSchema.CONF_ON_OFF_ADDRESS),
         group_address_on_off_state=config.get(ClimateSchema.CONF_ON_OFF_STATE_ADDRESS),
         on_off_invert=config[ClimateConf.ON_OFF_INVERT],
+        group_address_heating_active_state=config.get(
+            ClimateSchema.CONF_HEATING_ACTIVE_STATE_ADDRESS
+        ),
+        group_address_heating_command_value_state=config.get(
+            ClimateSchema.CONF_HEATING_COMMAND_VALUE_STATE_ADDRESS
+        ),
+        heating_activity_threshold=config[
+            ClimateSchema.CONF_HEATING_ACTIVITY_THRESHOLD
+        ],
+        group_address_cooling_active_state=config.get(
+            ClimateSchema.CONF_COOLING_ACTIVE_STATE_ADDRESS
+        ),
+        group_address_cooling_command_value_state=config.get(
+            ClimateSchema.CONF_COOLING_COMMAND_VALUE_STATE_ADDRESS
+        ),
+        cooling_activity_threshold=config[
+            ClimateSchema.CONF_COOLING_ACTIVITY_THRESHOLD
+        ],
         group_address_active_state=config.get(ClimateSchema.CONF_ACTIVE_STATE_ADDRESS),
         group_address_command_value_state=config.get(
             ClimateSchema.CONF_COMMAND_VALUE_STATE_ADDRESS
@@ -279,6 +297,16 @@ def _create_climate_ui(
         group_address_on_off=write_address(conf.ga_on_off),
         group_address_on_off_state=state_and_passive(conf.ga_on_off),
         on_off_invert=conf.on_off_invert,
+        group_address_heating_active_state=state_and_passive(conf.ga_heating_active),
+        group_address_heating_command_value_state=state_and_passive(
+            conf.ga_heating_valve
+        ),
+        heating_activity_threshold=conf.heating_activity_threshold,
+        group_address_cooling_active_state=state_and_passive(conf.ga_cooling_active),
+        group_address_cooling_command_value_state=state_and_passive(
+            conf.ga_cooling_valve
+        ),
+        cooling_activity_threshold=conf.cooling_activity_threshold,
         group_address_active_state=state_and_passive(conf.ga_active),
         group_address_command_value_state=state_and_passive(conf.ga_valve),
         sync_state=conf.sync_state,
@@ -489,6 +517,15 @@ class _KnxClimate(ClimateEntity, _KnxEntityBase):
 
         Need to be one of CURRENT_HVAC_*.
         """
+        if self._device.has_independent_activity:
+            heating, cooling = self._device.is_heating, self._device.is_cooling
+            if heating is None or cooling is None or (heating and cooling):
+                return None
+            if heating:
+                return HVACAction.HEATING
+            if cooling:
+                return HVACAction.COOLING
+            return HVACAction.OFF if self.hvac_mode == HVACMode.OFF else HVACAction.IDLE
         if self._device.supports_on_off and not self._device.is_on:
             return HVACAction.OFF
         if self._device.is_active is False:
@@ -618,6 +655,16 @@ class _KnxClimate(ClimateEntity, _KnxEntityBase):
 
         if self._device.command_value.initialized:
             attr[ATTR_COMMAND_VALUE] = self._device.command_value.value
+        if self._device.has_independent_activity:
+            attr.update(
+                {
+                    "heating_active": self._device.is_heating,
+                    "cooling_active": self._device.is_cooling,
+                    "valve_activity_conflict": self._device.valve_activity_conflict,
+                    "heating_valve_position": self._device.heating_command_value.value,
+                    "cooling_valve_position": self._device.cooling_command_value.value,
+                }
+            )
         return attr
 
     @override
