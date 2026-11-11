@@ -295,10 +295,12 @@
     "step": {
       "init": {
         "data": {
-          "code": "Access code"
+          "code": "Access code",
+          "auto_discover": "Automatically discover configured zones, partitions and outputs"
         },
         "data_description": {
-          "code": "Code to toggle switchable outputs"
+          "code": "Code to toggle switchable outputs",
+          "auto_discover": "Read configured devices and their names from the alarm panel during setup. Existing manually configured entities are preserved. This may take several minutes on larger panels; if disabled, devices can still be added manually."
         }
       }
     }
