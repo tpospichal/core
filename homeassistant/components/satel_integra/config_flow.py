@@ -28,6 +28,7 @@ from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv, selector
 
 from .const import (
+    CONF_AUTO_DISCOVER,
     CONF_ARM_HOME_MODE,
     CONF_ENABLE_TEMPERATURE_SENSOR,
     CONF_ENCRYPTION_KEY,
@@ -60,6 +61,9 @@ CONNECTION_SCHEMA = probatio.Schema(
 
 OPTIONS_SCHEMA = probatio.Schema(
     {
+        probatio.Optional(CONF_AUTO_DISCOVER, default=True): (
+            selector.BooleanSelector()
+        ),
         probatio.Optional(CONF_CODE): probatio.All(
             selector.TextSelector(
                 selector.TextSelectorConfig(
