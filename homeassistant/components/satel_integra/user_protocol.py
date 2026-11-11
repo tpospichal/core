@@ -362,3 +362,27 @@ class SatelUserManager:
         _, roster = await self.roster(code)
         if number in roster.existing:
             raise UserProtocolError("User removal not verified")
+
+    async def add_user(
+        self, code: str, number: int, new_code: str, profile: UserProfile
+    ) -> PanelUser:
+        """Create a regular user as master, then verify it exists."""
+        _number(number, write=True)
+        actor, roster = await self.roster(code)
+        if not actor.profile.master or not actor.can_manage_users:
+            raise UserAccessDenied("Creation requires a master with edit rights")
+        if number in roster.existing:
+            raise UserAccessDenied("User number is already occupied")
+        if not profile.partitions.issubset(actor.profile.partitions):
+            raise UserAccessDenied("Cannot grant partitions outside master scope")
+        if any(new & ~allowed for new, allowed in zip(profile.rights, actor.profile.rights)):
+            raise UserAccessDenied("Cannot grant permissions outside master rights")
+        if profile.object_number != actor.profile.object_number:
+            raise UserAccessDenied("Cannot create accounts in another object")
+        await self._write(
+            create_user(code, number, new_code, profile), number
+        )
+        result = await self.user(code, number)
+        if result.profile != profile:
+            raise UserProtocolError("Created user was not verified")
+        return result
