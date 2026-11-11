@@ -2,6 +2,7 @@
 
 from unittest.mock import AsyncMock
 
+from pytest_homeassistant.common import MockConfigEntry
 from satel_integra.models import SatelOutputInfo, SatelPartitionInfo, SatelZoneInfo
 
 from homeassistant.components.satel_integra.const import (
@@ -19,7 +20,7 @@ from homeassistant.core import HomeAssistant
 
 async def test_discovery_creates_only_configured_devices(
     hass: HomeAssistant,
-    mock_config_entry,
+    mock_config_entry: MockConfigEntry,
     mock_satel: AsyncMock,
 ) -> None:
     """Auto-discovery must skip addresses unused by the panel."""
@@ -74,7 +75,7 @@ async def test_discovery_creates_only_configured_devices(
 
 async def test_discovery_preserves_existing_manual_configuration(
     hass: HomeAssistant,
-    mock_config_entry_with_subentries,
+    mock_config_entry_with_subentries: MockConfigEntry,
     mock_satel: AsyncMock,
 ) -> None:
     """Do not modify names, types or entity IDs set by the user."""
@@ -106,7 +107,7 @@ async def test_discovery_preserves_existing_manual_configuration(
 
 async def test_discovery_skips_unassigned_and_disabled_devices(
     hass: HomeAssistant,
-    mock_config_entry,
+    mock_config_entry: MockConfigEntry,
     mock_satel: AsyncMock,
 ) -> None:
     """Nonempty names alone do not indicate an enabled alarm device."""
@@ -131,7 +132,7 @@ async def test_discovery_skips_unassigned_and_disabled_devices(
 
 async def test_discovery_stops_after_disconnect(
     hass: HomeAssistant,
-    mock_config_entry,
+    mock_config_entry: MockConfigEntry,
     mock_satel: AsyncMock,
 ) -> None:
     """Stop gracefully if the security panel disconnects mid-scan."""
