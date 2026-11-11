@@ -20,3 +20,7 @@ CONF_ZONE_TYPE = "type"
 CONF_ENCRYPTION_KEY = "encryption_key"
 
 CONF_ENABLE_TEMPERATURE_SENSOR = "enable_temperature_sensor"
+
+# Automatic read-only inventory of devices configured in the alarm panel.
+CONF_AUTO_DISCOVER = "auto_discover"
+CONF_PARTITION_ASSIGNMENT = "partition_assignment"
