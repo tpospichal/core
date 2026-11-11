@@ -24,7 +24,6 @@ from .const import (
     SUBENTRY_TYPE_SWITCHABLE_OUTPUT,
     SUBENTRY_TYPE_ZONE,
 )
-from .discovery import async_discover_device_subentries
 from .coordinator import (
     SatelConfigEntry,
     SatelIntegraData,
@@ -34,6 +33,7 @@ from .coordinator import (
     SatelIntegraTemperaturesCoordinator,
     SatelIntegraZonesCoordinator,
 )
+from .discovery import async_discover_device_subentries
 
 _LOGGER = logging.getLogger(__name__)
 
