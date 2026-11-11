@@ -16,7 +16,7 @@ class UserCommand(IntEnum):
     DELETE = 0xE5
     CREATE = 0xE6
     UPDATE = 0xE7
-    RESULT = 0xEF
+    RESULT = 0xE8  # SATEL user-management acknowledgement, NOT generic 0xEF
 
 
 class UserProtocolError(Exception):
@@ -99,3 +99,170 @@ def read_roster(code: str, requester: int) -> UserRequest:
 
 def delete_user(code: str, number: int) -> UserRequest:
     return UserRequest(UserCommand.DELETE, _pin(code, 8) + bytes([_number(number, write=True)]))
+
+def _require_length(data: bytes, length: int) -> None:
+    if len(data) != length:
+        raise UserProtocolError("Unexpected SATEL user response length")
+
+
+def _decode_profile(
+    partitions: bytes,
+    type_flags: int,
+    days: int,
+    temporary_days: int,
+    rights: bytes,
+    name_bytes: bytes,
+    attributes: int,
+    *,
+    encoding: str,
+) -> UserProfile:
+    try:
+        name = name_bytes.decode(encoding, "strict").rstrip("\x00 ").strip()
+        if not name:
+            raise UserProtocolError("SATEL returned an empty user name")
+        return UserProfile(
+            name=name,
+            partitions=frozenset(decode_bitmask_le(partitions, 4)),
+            rights=rights,
+            user_type=type_flags & 0x0F,
+            days=days,
+            temporary_days=temporary_days,
+            simple=bool(attributes & 0x80),
+            master=bool(attributes & 0x40),
+            can_isolate=bool(type_flags & 0x20),
+            object_number=attributes & 0x07,
+        )
+    except (ValueError, UnicodeError) as exc:
+        raise UserProtocolError("Cannot decode user profile") from exc
+
+
+def parse_self(data: bytes, *, encoding: str = "latin-1") -> PanelUser:
+    """Decode E0 response body (29 bytes, excludes command byte).
+
+    The telephone code is deliberately not exposed in the result.
+    """
+    _require_length(data, 29)
+    number = data[0]
+    if number != 255:
+        _number(number)
+    return PanelUser(
+        number=number,
+        profile=_decode_profile(
+            data[3:7], data[7], data[8], 0,
+            data[9:12], data[12:28], data[28], encoding=encoding,
+        ),
+    )
+
+
+def parse_user(data: bytes, *, encoding: str = "latin-1") -> PanelUser:
+    """Decode E1 response body (28 bytes, excludes command byte)."""
+    _require_length(data, 28)
+    number = _number(data[0])
+    return PanelUser(
+        number=number,
+        profile=_decode_profile(
+            data[1:5], data[5], data[6], data[7],
+            data[8:11], data[11:27], data[27], encoding=encoding,
+        ),
+    )
+
+
+def parse_roster(data: bytes) -> UserRoster:
+    """Decode E2 body: requesting user, existing mask, editable mask."""
+    _require_length(data, 61)
+    requester = _number(data[0])
+    existing = frozenset(decode_bitmask_le(data[1:31], 30))
+    editable = frozenset(decode_bitmask_le(data[31:61], 30))
+    if editable - existing:
+        raise UserProtocolError("Editable roster contains absent users")
+    return UserRoster(requester, existing, editable)
+
+
+def parse_user_ack(data: bytes, expected_command: UserCommand, user: int) -> None:
+    """Decode E8/? confirmation for E5/E6/E7.
+
+    An E8 success is not evidence that data can be read back; the caller must
+    verify the panel state. This function does not retry failed writes.
+    """
+    _require_length(data, 4)
+    command_character = {UserCommand.DELETE: ord("5"),
+                         UserCommand.CREATE: ord("6"),
+                         UserCommand.UPDATE: ord("7")}.get(expected_command)
+    if command_character is None:
+        raise ValueError("Not a supported user write operation")
+    if data[0] != ord("?") or data[1] != command_character:
+        raise UserProtocolError("Unexpected SATEL acknowledgement")
+    if data[2] != user:
+        raise UserProtocolError("SATEL acknowledgement user mismatch")
+    if data[3] == 1 or data[3] == 2:
+        raise UserAccessDenied("SATEL rejected operator code or privileges")
+    if data[3] != 0:
+        raise UserProtocolError(f"SATEL rejected user operation (0x{data[3]:02X})")
+
+
+def _profile_payload(profile: UserProfile, encoding: str) -> bytes:
+    if not 1 <= len(profile.name) <= 16 or not 0 <= profile.user_type <= 10:
+        raise ValueError("Invalid user profile")
+    if len(profile.rights) != 3 or not 0 <= profile.days <= 255:
+        raise ValueError("Invalid rights or time")
+    if not 0 <= profile.temporary_days <= 255:
+        raise ValueError("Invalid temporary time")
+    if any(not 1 <= n <= 32 for n in profile.partitions):
+        raise ValueError("Invalid partition")
+    if not 0 <= profile.object_number <= 7:
+        raise ValueError("Invalid object number")
+    if profile.master or profile.simple:
+        raise ValueError("Privileged/special user edits are blocked")
+    encoded = profile.name.encode(encoding, "strict")
+    if len(encoded) > 16:
+        raise ValueError("User name exceeds 16 encoded bytes")
+    flags = profile.user_type | (0x20 if profile.can_isolate else 0)
+    return (
+        encode_bitmask_le(sorted(profile.partitions), 4)
+        + bytes((flags, profile.days, profile.temporary_days))
+        + profile.rights
+        + encoded.ljust(16, b" ")
+    )
+
+
+def create_user(
+    operator_code: str,
+    number: int,
+    new_code: str,
+    profile: UserProfile,
+    *,
+    encoding: str = "latin-1",
+) -> UserRequest:
+    """Encode E6. Never generate privileged master accounts."""
+    _number(number, write=True)
+    if not 0 <= profile.object_number <= 7:
+        raise ValueError("Invalid object number")
+    return UserRequest(
+        UserCommand.CREATE,
+        _pin(operator_code, 8)
+        + bytes((number,))
+        + _pin(new_code, 4)
+        + b"\xff" * 2
+        + _profile_payload(profile, encoding)
+        + bytes((profile.object_number,)),
+    )
+
+
+def update_user(
+    operator_code: str,
+    number: int,
+    profile: UserProfile,
+    *,
+    new_code: str | None = None,
+    encoding: str = "latin-1",
+) -> UserRequest:
+    """Encode E7, preserving existing PIN unless new_code is provided."""
+    _number(number, write=True)
+    return UserRequest(
+        UserCommand.UPDATE,
+        _pin(operator_code, 8)
+        + bytes((number,))
+        + (_pin(new_code, 4) if new_code is not None else b"\xff" * 4)
+        + b"\xff" * 2
+        + _profile_payload(profile, encoding),
+    )
