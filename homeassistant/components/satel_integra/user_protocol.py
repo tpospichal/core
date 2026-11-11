@@ -6,6 +6,7 @@ The SDK's debug logging must be redacted before these are exposed in HA.
 
 from dataclasses import dataclass, field
 from enum import IntEnum
+from collections.abc import Awaitable, Callable
 from satel_integra.utils import decode_bitmask_le, encode_bitmask_le
 
 
@@ -266,3 +267,98 @@ def update_user(
         + b"\xff" * 2
         + _profile_payload(profile, encoding),
     )
+
+UserTransport = Callable[[UserRequest], Awaitable[tuple[int, bytes]]]
+
+
+class SatelUserManager:
+    """Guarded user operations over an SDK-managed shared SATEL connection.
+
+    The supplied transport MUST serialize with all other SATEL requests and
+    suppress request/response hex logging. This staging class does NOT
+    open a separate socket and is not exposed as a HA service.
+    """
+
+    def __init__(self, transport: UserTransport):
+        self._transport = transport
+
+    async def _query(self, request: UserRequest) -> bytes:
+        command, body = await self._transport(request)
+        if command == UserCommand.RESULT:
+            # E8/? may also report failure of a READ request.
+            if len(body) == 4 and body[0] == ord("?"):
+                if body[3] in (1, 2):
+                    raise UserAccessDenied("SATEL denied user query")
+            raise UserProtocolError("SATEL user query failed")
+        if command != request.command:
+            raise UserProtocolError("SATEL unexpected response")
+        return body
+
+    async def _write(self, request: UserRequest, number: int) -> None:
+        command, body = await self._transport(request)
+        if command != UserCommand.RESULT:
+            raise UserProtocolError("SATEL write outcome unknown")
+        parse_user_ack(body, request.command, number)
+
+    async def authenticate(self, code: str) -> PanelUser:
+        actor = parse_self(await self._query(read_self(code)))
+        if not actor.can_use_guardx:
+            raise UserAccessDenied("Operator has no GUARDX access")
+        return actor
+
+    async def roster(self, code: str) -> tuple[PanelUser, UserRoster]:
+        actor = await self.authenticate(code)
+        if actor.number == 255:
+            raise UserAccessDenied("Service account is excluded from user management")
+        roster = parse_roster(await self._query(read_roster(code, actor.number)))
+        if roster.requester != actor.number:
+            raise UserProtocolError("User list scope mismatch")
+        return actor, roster
+
+    async def user(self, code: str, number: int) -> PanelUser:
+        _number(number)
+        _, roster = await self.roster(code)
+        if number <= 240 and number not in roster.existing:
+            raise UserAccessDenied("User not visible in operator roster")
+        user = parse_user(await self._query(read_user(code, number)))
+        if user.number != number:
+            raise UserProtocolError("User read-back ID mismatch")
+        return user
+
+    async def _require_edit(self, code: str, number: int) -> PanelUser:
+        _number(number, write=True)
+        actor, roster = await self.roster(code)
+        if not actor.can_manage_users:
+            raise UserAccessDenied("Operator has no user-edit right")
+        if number == actor.number:
+            raise UserAccessDenied("Self-edit must use panel's own-code command")
+        if number not in roster.existing or number not in roster.editable:
+            raise UserAccessDenied("User is not editable by this operator")
+        existing = await self.user(code, number)
+        if existing.profile.master or existing.profile.simple:
+            raise UserAccessDenied("Special user types cannot be edited here")
+        return actor
+
+    async def change_user(
+        self, code: str, number: int, profile: UserProfile,
+        *, new_code: str | None = None,
+    ) -> PanelUser:
+        actor = await self._require_edit(code, number)
+        if not profile.partitions.issubset(actor.profile.partitions):
+            raise UserAccessDenied("Cannot grant partitions outside operator scope")
+        if any(new & ~allowed for new, allowed in zip(profile.rights, actor.profile.rights)):
+            raise UserAccessDenied("Cannot grant rights held by neither operator")
+        await self._write(
+            update_user(code, number, profile, new_code=new_code), number
+        )
+        result = await self.user(code, number)
+        if result.profile != profile:
+            raise UserProtocolError("Changed user state not verified")
+        return result
+
+    async def remove_user(self, code: str, number: int) -> None:
+        await self._require_edit(code, number)
+        await self._write(delete_user(code, number), number)
+        _, roster = await self.roster(code)
+        if number in roster.existing:
+            raise UserProtocolError("User removal not verified")
