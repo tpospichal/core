@@ -11,6 +11,7 @@ from homeassistant.helpers.entity_registry import RegistryEntry, async_migrate_e
 
 from .client import SatelClient
 from .const import (
+    CONF_AUTO_DISCOVER,
     CONF_ENABLE_TEMPERATURE_SENSOR,
     CONF_ENCRYPTION_KEY,
     CONF_OUTPUT_NUMBER,
@@ -23,6 +24,7 @@ from .const import (
     SUBENTRY_TYPE_SWITCHABLE_OUTPUT,
     SUBENTRY_TYPE_ZONE,
 )
+from .discovery import async_discover_device_subentries
 from .coordinator import (
     SatelConfigEntry,
     SatelIntegraData,
@@ -73,6 +75,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: SatelConfigEntry) -> Non
     except SatelIntegraError:
         _LOGGER.warning("Unable to read Satel panel information", exc_info=True)
         panel_info = None
+
+    # Discovery changes only local HA config subentries. It is read-only on
+    # the alarm panel and must finish before entities are created.
+    # Existing installations remain unchanged until the option is enabled.
+    if entry.options.get(CONF_AUTO_DISCOVER, False):
+        try:
+            await async_discover_device_subentries(
+                hass, entry, client.controller, panel_info
+            )
+        except SatelIntegraError:
+            _LOGGER.warning("Unable to discover Satel devices", exc_info=True)
 
     entry.runtime_data = SatelIntegraData(
         client=client,
